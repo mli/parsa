@@ -8,7 +8,7 @@ Mu Li, Dave Andersen, Alex Smola
 2014
 #+END_QUOTE
 
-*Build and Run*
+Build and Run:
 
 1. Build parameter server by following the [[https://github.com/mli/parameter_server/blob/master/README.org][guide]]
 2. Clone this repository in the parameter server directory (or change =PS_PATH=
@@ -20,7 +20,7 @@ Mu Li, Dave Andersen, Alex Smola
 Some known issues:
 
 1. This implementation handles general uint64 keys. A implementation which
-   assume continous keys can be much faster.
-2. One need to change the configuration in `parsa_common.h` to obtain more than
+   assume continuous keys can be much faster.
+2. One need to change the configuration at the head of =parsa.h= to obtain more than
    16 partitions.
 3. `partitionU` may be hung if assign too many blocks to one worker.
