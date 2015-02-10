@@ -14,7 +14,8 @@ Mu Li, Dave Andersen, Alex Smola
 2. Clone this repository in the parameter server directory (or change =PS_PATH=
    in =Makefile= accordingly)
 3. Build parsa by =make -j8=
-4. Test 2 servers and 2 workers in local =../script/local.sh ./parsa 2 2 conf/parsa.conf=
+4. Download data by =example/download_ctr.sh=
+5. Test 2 servers and 2 workers in local =../script/local.sh ./parsa 2 2 -app_file example/ctr.conf=
 
 Some known issues:
 
