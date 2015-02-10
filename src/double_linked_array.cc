@@ -1,6 +1,6 @@
-#include "graph_partition/double_linked_array.h"
-namespace PS {
-namespace PARSA {
+#include "double_linked_array.h"
+#include <algorithm>
+#include "glog/logging.h"
 
 void DblinkArray::init(const std::vector<int>& data, int cache_limit) {
   // sort the values
@@ -117,6 +117,3 @@ void DblinkArray::decrAndSort(int i) {
 
   // check();
 }
-
-} // namespace PARSA
-} // namespace PS

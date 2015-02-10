@@ -1,16 +1,125 @@
-#include "graph_partition/parsa_worker.h"
+#include "parsa.h"
 #include "util/localizer.h"
-namespace PS {
-namespace GP {
+
+void ParsaScheduler::run() {
+  if (conf_.stage0_blocks()) {
+    Task partitionU = newTask(Call::PARTITION_U_STAGE_0);
+    port("W0")->submitAndWait(partitionU);
+  }
+
+  if (conf_.stage1_block_size()) {
+    Task partitionU = newTask(Call::PARTITION_U_STAGE_1);
+    port(kCompGroup)->submitAndWait(partitionU);
+  }
+
+  Task partitionV = newTask(Call::PARTITION_V);
+  port(kCompGroup)->submitAndWait(partitionV);
+}
+
+void ParsaServerModel::setValue(const MessagePtr& msg) {
+  // clear the neigbhor set in the initialization stage
+  ++ count_;
+  int stage1_real_work = conf_.stage1_warm_up_blocks() +
+                         conf_.stage0_warm_up_blocks() +
+                         conf_.stage0_blocks();
+  int chn = msg->task.key_channel();
+  if (chn == stage1_real_work && !enter_real_stage1_) {
+    enter_real_stage1_ = true;
+    data_.clear();
+  } else if (chn < stage1_real_work &&
+             count_ % conf_.clear_nbset_per_num_blocks() == 0) {
+    data_.clear();
+  }
+
+  if (chn >= stage1_real_work) {
+    // store the key for workers
+    SArray<Key> recv_key(msg->key);
+    worker_key_[msg->sender] = recv_key.setUnion(worker_key_[msg->sender]);
+  }
+
+  KVMap<Key, V>::setValue(msg);
+}
+
+void ParsaServerModel::partitionV() {
+  int num_partitions = conf_.num_partitions();
+  bool random_partition = conf_.randomly_partition_v();
+  std::vector<int> cost(num_partitions);
+  srand(time(NULL));
+
+  int n = data_.size();
+  SArray<KP> partition; partition.reserve(n);
+  for (const auto& e : data_) {
+    if (!e.second) continue;
+    if (random_partition) {
+      P best_k = rand() % num_partitions;
+      for (int k = 0; k < num_partitions; ++k) {
+        if ((e.second & (1 << k)) && k != best_k) {
+          ++ cost[k];
+        }
+      }
+    } else {
+      // greedy
+      int max_cost = 0;
+      P best_k = -1;
+      for (P k = 0; k < num_partitions; ++k) {
+        if (e.second & (1 << k)) {
+          int c = ++ cost[k];
+          if (c > max_cost) { max_cost = c; best_k = k; }
+        }
+      }
+      CHECK_GE(best_k, 0);
+      partition.pushBack(std::make_pair(e.first, best_k));
+      -- cost[best_k];
+    }
+  }
+
+  int v = 0;
+  for (int j = 0; j < num_partitions; ++j) v += cost[j];
+  LL << data_.size() << " " << v;
+  data_.clear();
+
+  // push the results to workers
+  std::sort(partition.begin(), partition.end(),
+            [](const KP& a, const KP& b) { return a.first < b.first; });
+  SArray<Key> V_key(n);
+  SArray<V> V_val(n);
+  for (int i = 0; i < n; ++i) {
+    V_key[i] = partition[i].first;
+    V_val[i] = partition[i].second;
+  }
+  partition.clear();
+
+  int chn = conf_.stage0_warm_up_blocks() + conf_.stage0_blocks() +
+            conf_.stage1_warm_up_blocks() + conf_.stage1_blocks();
+  for (const auto& it : worker_key_) {
+    MessagePtr V_msg(new Message(it.first, chn*3));
+    V_msg->task.set_key_channel(chn);
+    V_msg->setKey(it.second);
+    SArray<V> val;
+    parallelOrderedMatch(V_key, V_val, it.second, &val);
+    V_msg->addValue(val);
+    this->set(V_msg)->set_gather(true);
+    this->push(V_msg);
+  }
+}
 
 void ParsaWorker::init() {
-  GraphPartition::init();
   conf_.mutable_input_graph()->set_ignore_feature_group(true);
-  num_partitions_ = conf_.parsa().num_partitions();
+  num_partitions_ = conf_.num_partitions();
   neighbor_set_.resize(num_partitions_);
-  random_partition_ = conf_.parsa().randomly_partition_u();
-  sync_nbset_ = KVVectorPtr<Key, V>(new KVVector<Key, V>());
-  REGISTER_CUSTOMER(app_cf_.parameter_name(0), sync_nbset_);
+  random_partition_ = conf_.randomly_partition_u();
+  sync_nbset_ = new KVVector<Key, V>("model");
+}
+
+void ParsaWorker::process(const MessagePtr& msg) {
+  auto cmd = getCall(msg).cmd();
+  if (cmd == Call::PARTITION_U_STAGE_0) {
+    stage0();
+  } else if (cmd == Call::PARTITION_U_STAGE_1) {
+    stage1();
+  } else if (cmd == Call::PARTITION_V) {
+    remapKey();
+  }
 }
 
 void ParsaWorker::readGraph(
@@ -61,17 +170,16 @@ void ParsaWorker::readGraph(
 
 
 void ParsaWorker::stage0() {
-  auto parsa = conf_.parsa();
   no_sync_ = true;
   delta_nbset_ = false;
 
   // warm up
-  if (parsa.stage0_warm_up_blocks()) {
+  if (conf_.stage0_warm_up_blocks()) {
     StreamReader<Empty> stream_0(conf_.input_graph());
-    ProducerConsumer<BlockData> reader_0(parsa.data_buff_size_in_mb());
+    ProducerConsumer<BlockData> reader_0(conf_.data_buff_size_in_mb());
     int start_id_0 = 0;
-    int end_id_0 = start_id_0 + parsa.stage0_warm_up_blocks();
-    readGraph(stream_0, reader_0, start_id_0, end_id_0, parsa.stage0_block_size(), false);
+    int end_id_0 = start_id_0 + conf_.stage0_warm_up_blocks();
+    readGraph(stream_0, reader_0, start_id_0, end_id_0, conf_.stage0_block_size(), false);
 
     BlockData blk;
     while (reader_0.pop(&blk)) {
@@ -84,13 +192,13 @@ void ParsaWorker::stage0() {
   }
 
   // real work
-  if (parsa.stage0_blocks()) {
+  if (conf_.stage0_blocks()) {
     StreamReader<Empty> stream_1(conf_.input_graph());
-    ProducerConsumer<BlockData> reader_1(parsa.data_buff_size_in_mb());
-    int start_id_1 = parsa.stage0_warm_up_blocks();
+    ProducerConsumer<BlockData> reader_1(conf_.data_buff_size_in_mb());
+    int start_id_1 = conf_.stage0_warm_up_blocks();
     int start_id_1_const = start_id_1;
-    int end_id_1 = start_id_1 + parsa.stage0_blocks();
-    readGraph(stream_1, reader_1, start_id_1, end_id_1, parsa.stage0_block_size(), false);
+    int end_id_1 = start_id_1 + conf_.stage0_blocks();
+    readGraph(stream_1, reader_1, start_id_1, end_id_1, conf_.stage0_block_size(), false);
 
     BlockData blk;
     SArray<Key> nbset_key;
@@ -134,18 +242,17 @@ void ParsaWorker::stage0() {
 
 
 void ParsaWorker::stage1() {
-  auto parsa = conf_.parsa();
   no_sync_ = false;
   delta_nbset_ = false;
 
-  int start_id_0_const = parsa.stage0_warm_up_blocks() + parsa.stage0_blocks();
+  int start_id_0_const = conf_.stage0_warm_up_blocks() + conf_.stage0_blocks();
   // warm up
-  if (parsa.stage1_warm_up_blocks()) {
+  if (conf_.stage1_warm_up_blocks()) {
     StreamReader<Empty> stream_0(conf_.input_graph());
-    ProducerConsumer<BlockData> reader_0(parsa.data_buff_size_in_mb());
+    ProducerConsumer<BlockData> reader_0(conf_.data_buff_size_in_mb());
     int start_id_0 = start_id_0_const;
-    int end_id_0 = start_id_0 + parsa.stage1_warm_up_blocks();
-    readGraph(stream_0, reader_0, start_id_0, end_id_0, parsa.stage1_block_size(), false);
+    int end_id_0 = start_id_0 + conf_.stage1_warm_up_blocks();
+    readGraph(stream_0, reader_0, start_id_0, end_id_0, conf_.stage1_block_size(), false);
 
     BlockData blk;
     while (reader_0.pop(&blk)) {
@@ -161,11 +268,11 @@ void ParsaWorker::stage1() {
   // real work
   // reader
   StreamReader<Empty> stream_1(conf_.input_graph());
-  ProducerConsumer<BlockData> reader_1(parsa.data_buff_size_in_mb());
-  int start_id_1 = parsa.stage1_warm_up_blocks() + start_id_0_const;
+  ProducerConsumer<BlockData> reader_1(conf_.data_buff_size_in_mb());
+  int start_id_1 = conf_.stage1_warm_up_blocks() + start_id_0_const;
   int start_id_1_const = start_id_1;
-  int end_id_1 = start_id_1 + parsa.stage1_blocks();
-  readGraph(stream_1, reader_1, start_id_1, end_id_1, parsa.stage1_block_size(), true);
+  int end_id_1 = start_id_1 + conf_.stage1_blocks();
+  readGraph(stream_1, reader_1, start_id_1, end_id_1, conf_.stage1_block_size(), true);
 
   // write the partitioned examples into protobuf format
   typedef std::pair<ExampleListPtr, SArray<int>> ResultPair;
@@ -180,7 +287,7 @@ void ParsaWorker::stage1() {
     auto file = File::openOrDie(ithFile(tmp_files_, i), "w");
     proto_writers_1[i] = RecordWriter(file);
   }
-  writer_1.setCapacity(parsa.data_buff_size_in_mb());
+  writer_1.setCapacity(conf_.data_buff_size_in_mb());
   writer_1.startConsumer([&proto_writers_1](const ResultPair& data) {
       const auto& examples = *data.first;
       const auto& partition = data.second;
@@ -208,9 +315,8 @@ void ParsaWorker::stage1() {
 
 void ParsaWorker::remapKey() {
   // wait the partition results from servers
-  auto parsa = conf_.parsa();
-  int chn = parsa.stage0_warm_up_blocks() + parsa.stage0_blocks() +
-            parsa.stage1_warm_up_blocks() + parsa.stage1_blocks();
+  int chn = conf_.stage0_warm_up_blocks() + conf_.stage0_blocks() +
+            conf_.stage1_warm_up_blocks() + conf_.stage1_blocks();
   sync_nbset_->waitInMsg(kServerGroup, chn*3);
   // LL << sync_nbset_->key(chn);
   // LL << sync_nbset_->value(chn);
@@ -229,7 +335,7 @@ void ParsaWorker::remapKey() {
   map.insert(data.begin(), data.end());
 
   // remap the data
-  // bool validate = parsa.validate();
+  // bool validate = conf_.validate();
   // SArray<Key> remote_keys;
 
   for (int i = 0; i < tmp_files_.file_size(); ++i) {
@@ -371,7 +477,7 @@ void ParsaWorker::initCost(const GraphPtr& row_major_blk) {
         cost[i] += !assigned_V.test(row_idx[j]);
       }
     }
-    cost_[k].init(cost, conf_.parsa().max_cached_cost_value());
+    cost_[k].init(cost, conf_.max_cached_cost_value());
   }
 }
 
@@ -404,6 +510,3 @@ void ParsaWorker::updateCostAndNeighborSet(
     }
   }
 }
-
-} // namespace GP
-} // namespace PS

@@ -8,6 +8,14 @@ Mu Li, Dave Andersen, Alex Smola
 2014
 #+END_QUOTE
 
+*Build and Run*
+
+1. Build parameter server by following the [[https://github.com/mli/parameter_server/blob/master/README.org][guide]]
+2. Clone this repository in the parameter server directory (or change =PS_PATH=
+   in =Makefile= accordingly)
+3. Build parsa by =make -j8=
+4. Test 2 servers and 2 workers in local =../script/local.sh ./parsa 2 2 conf/parsa.conf=
+
 Some known issues:
 
 1. This implementation handles general uint64 keys. A implementation which

@@ -1,8 +1,5 @@
 #pragma once
-#include "util/common.h"
-// #include "base/shared_array_inl.h"
-namespace PS {
-namespace PARSA {
+#include <vector>
 
 // double linked list supporting random access and cache, the value is sorted
 class DblinkArray {
@@ -29,6 +26,3 @@ class DblinkArray {
   int cache_limit_;
   int size_ = 0;
 };
-
-} // namespace PARSA
-} // namespace PS

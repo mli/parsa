@@ -1,14 +1,11 @@
-package PS.GP;
 import "data/proto/data.proto";
+import "system/proto/task.proto";
 
 message Config {
-  optional DataConfig input_graph = 1;
-  optional DataConfig output_graph = 2;
-  optional ParsaConfig parsa = 3;
-}
+  optional PS.DataConfig input_graph = 1;
+  optional PS.DataConfig output_graph = 2;
 
-message ParsaConfig {
-  optional int32 num_partitions = 1 [default = 8];
+  optional int32 num_partitions = 3 [default = 8];
   // optional int32 bloomfilter_k = 2 [default = 2];
   // optional float bloomfilter_m_ratio = 3 [default = 4];
 
@@ -43,4 +40,8 @@ message Call {
     PARTITION_V = 3;
   }
   required Command cmd = 1;
+}
+
+extend PS.Task {
+  optional Call parsa = 100;
 }
