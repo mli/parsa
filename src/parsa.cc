@@ -42,7 +42,7 @@ void ParsaServerModel::setValue(const MessagePtr& msg) {
     data_.clear();
   }
 
-  if (chn >= stage1_real_work) {
+  if (chn >= stage1_real_work && conf_.save_result()) {
     // store the key for workers
     SArray<Key> recv_key(msg->key);
     worker_key_[msg->sender] = recv_key.setUnion(worker_key_[msg->sender]);
@@ -89,6 +89,7 @@ void ParsaServerModel::partitionV() {
   LL << "V size: " << data_.size() << " cost: " << v;
   data_.clear();
 
+  if (!conf_.save_result()) return;
   // push the results to workers
   std::sort(partition.begin(), partition.end(),
             [](const KP& a, const KP& b) { return a.first < b.first; });
@@ -99,6 +100,7 @@ void ParsaServerModel::partitionV() {
     V_val[i] = partition[i].second;
   }
   partition.clear();
+
 
   int chn = conf_.stage0_warm_up_blocks() + conf_.stage0_blocks() +
             conf_.stage1_warm_up_blocks() + conf_.stage1_blocks();
@@ -327,6 +329,7 @@ void ParsaWorker::stage1() {
 }
 
 void ParsaWorker::remapKey() {
+  if (!conf_.save_result()) return;
   // wait the partition results from servers
   int chn = conf_.stage0_warm_up_blocks() + conf_.stage0_blocks() +
             conf_.stage1_warm_up_blocks() + conf_.stage1_blocks();

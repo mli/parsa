@@ -40,7 +40,9 @@ class Parsa : public App {
 
 class ParsaScheduler : public Parsa {
  public:
-  ParsaScheduler(const string& conf) : Parsa(conf) { }
+  ParsaScheduler(const string& conf) : Parsa(conf) {
+    CHECK_LE(conf_.num_partitions(), kMaxNumPartitions);
+  }
   virtual ~ParsaScheduler() { }
   void run();
 };

@@ -6,8 +6,6 @@ message Config {
   optional PS.DataConfig output_graph = 2;
 
   optional int32 num_partitions = 3 [default = 8];
-  // optional int32 bloomfilter_k = 2 [default = 2];
-  // optional float bloomfilter_m_ratio = 3 [default = 4];
 
   optional int32 stage0_block_size = 4 [default = 100000];
   optional int32 stage0_blocks = 5 [default = 0];
@@ -22,15 +20,11 @@ message Config {
 
   optional int32 clear_nbset_per_num_blocks = 13 [default = 1];
 
-  // optional int32 block_size = 4 [default = 100000];
-  // optional int32 V_size = 6 [default = 1000000];
-
   // do random partition
   optional bool randomly_partition_U = 11 [default = false];
   optional bool randomly_partition_V = 12 [default = false];
-  // optional bool run_baseline = 10 [default = false];
 
-  optional bool validate = 15 [default = false];
+  optional bool save_result = 15 [default = true];
 }
 
 message Call {
