@@ -117,7 +117,7 @@ class ParsaWorker : public Parsa {
   void sendUpdatedNeighborSet(int blk);
 
  private:
-
+  DataConfig input_graph_;
   std::vector<Bitmap> neighbor_set_;
 
   SArray<KP> added_neighbor_set_;

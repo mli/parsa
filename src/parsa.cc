@@ -1,7 +1,18 @@
 #include "parsa.h"
 #include "util/localizer.h"
+#include "system/postmaster.h"
 
 void ParsaScheduler::run() {
+  // partition data
+  Task data = newTask(Call::ASSIGN_DATA);
+  auto conf = Postmaster::partitionData(conf_.input_graph(), sys_.yp().num_workers());
+  std::vector<Task> tasks(conf.size(), data);
+  for (int i = 0; i < conf.size(); ++i) {
+    conf[i].set_ignore_feature_group(true);
+    *tasks[i].MutableExtension(parsa)->mutable_data() = conf[i];
+  }
+  port(kWorkerGroup)->submitAndWait(tasks);
+
   if (conf_.stage0_blocks()) {
     Task partitionU = newTask(Call::PARTITION_U_STAGE_0);
     port("W0")->submitAndWait(partitionU);
@@ -75,7 +86,7 @@ void ParsaServerModel::partitionV() {
 
   int v = 0;
   for (int j = 0; j < num_partitions; ++j) v += cost[j];
-  LL << data_.size() << " " << v;
+  LL << "V size: " << data_.size() << " cost: " << v;
   data_.clear();
 
   // push the results to workers
@@ -119,6 +130,8 @@ void ParsaWorker::process(const MessagePtr& msg) {
     stage1();
   } else if (cmd == Call::PARTITION_V) {
     remapKey();
+  } else if (cmd == Call::ASSIGN_DATA) {
+    input_graph_ = getCall(msg).data();
   }
 }
 
@@ -175,7 +188,7 @@ void ParsaWorker::stage0() {
 
   // warm up
   if (conf_.stage0_warm_up_blocks()) {
-    StreamReader<Empty> stream_0(conf_.input_graph());
+    StreamReader<Empty> stream_0(input_graph_);
     ProducerConsumer<BlockData> reader_0(conf_.data_buff_size_in_mb());
     int start_id_0 = 0;
     int end_id_0 = start_id_0 + conf_.stage0_warm_up_blocks();
@@ -193,7 +206,7 @@ void ParsaWorker::stage0() {
 
   // real work
   if (conf_.stage0_blocks()) {
-    StreamReader<Empty> stream_1(conf_.input_graph());
+    StreamReader<Empty> stream_1(input_graph_);
     ProducerConsumer<BlockData> reader_1(conf_.data_buff_size_in_mb());
     int start_id_1 = conf_.stage0_warm_up_blocks();
     int start_id_1_const = start_id_1;
@@ -248,7 +261,7 @@ void ParsaWorker::stage1() {
   int start_id_0_const = conf_.stage0_warm_up_blocks() + conf_.stage0_blocks();
   // warm up
   if (conf_.stage1_warm_up_blocks()) {
-    StreamReader<Empty> stream_0(conf_.input_graph());
+    StreamReader<Empty> stream_0(input_graph_);
     ProducerConsumer<BlockData> reader_0(conf_.data_buff_size_in_mb());
     int start_id_0 = start_id_0_const;
     int end_id_0 = start_id_0 + conf_.stage1_warm_up_blocks();
@@ -267,7 +280,7 @@ void ParsaWorker::stage1() {
 
   // real work
   // reader
-  StreamReader<Empty> stream_1(conf_.input_graph());
+  StreamReader<Empty> stream_1(input_graph_);
   ProducerConsumer<BlockData> reader_1(conf_.data_buff_size_in_mb());
   int start_id_1 = conf_.stage1_warm_up_blocks() + start_id_0_const;
   int start_id_1_const = start_id_1;

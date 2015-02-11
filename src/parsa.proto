@@ -35,11 +35,13 @@ message Config {
 
 message Call {
   enum Command {
+    ASSIGN_DATA = 4;
     PARTITION_U_STAGE_0 = 1;
     PARTITION_U_STAGE_1 = 2;
     PARTITION_V = 3;
   }
   required Command cmd = 1;
+  optional PS.DataConfig data = 2;
 }
 
 extend PS.Task {

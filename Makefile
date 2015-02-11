@@ -6,7 +6,7 @@ PS_THIRD_PATH = $(PS_PATH)/third_party
 PS_THIRD_LIB = $(addprefix $(PS_THIRD_PATH)/lib/, \
 	libgflags.a libzmq.a libprotobuf.a libglog.a libz.a libsnappy.a)
 
-CFLAGS=-std=c++11 -ggdb -O0 -I./src -I$(PS_PATH)/src -I$(PS_THIRD_PATH)/include -Wall -Wno-unused-function -finline-functions -Wno-sign-compare
+CFLAGS=-std=c++11 -ggdb -O3 -I./src -I$(PS_PATH)/src -I$(PS_THIRD_PATH)/include -Wall -Wno-unused-function -finline-functions -Wno-sign-compare
 
 all: parsa
 
